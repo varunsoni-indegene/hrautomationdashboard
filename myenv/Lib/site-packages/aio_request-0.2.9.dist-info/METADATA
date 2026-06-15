@@ -1,0 +1,157 @@
+Metadata-Version: 2.4
+Name: aio-request
+Version: 0.2.9
+Summary: Various strategies for sending requests
+Project-URL: Homepage, https://github.com/anna-money/aio-request
+Author-email: Iurii Pliner <yury@anna.money>
+License: MIT
+License-File: LICENSE
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Environment :: Web Environment
+Classifier: Framework :: AsyncIO
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3 :: Only
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Programming Language :: Python :: 3.14
+Classifier: Typing :: Typed
+Requires-Python: >=3.11
+Requires-Dist: multidict<7.0,>=4.5
+Requires-Dist: yarl<2.0,>=1.12.0
+Provides-Extra: dev
+Requires-Dist: aiohttp==3.13.2; extra == 'dev'
+Requires-Dist: httpx==0.28.1; extra == 'dev'
+Requires-Dist: opentelemetry-api>=1.27; extra == 'dev'
+Requires-Dist: opentelemetry-exporter-prometheus; extra == 'dev'
+Requires-Dist: opentelemetry-instrumentation-aiohttp-client; extra == 'dev'
+Requires-Dist: opentelemetry-semantic-conventions; extra == 'dev'
+Requires-Dist: prometheus-client==0.23.1; extra == 'dev'
+Requires-Dist: pyright==1.1.407; extra == 'dev'
+Requires-Dist: pytest-aiohttp==1.1.0; extra == 'dev'
+Requires-Dist: pytest-httpbin==2.1.0; extra == 'dev'
+Requires-Dist: pytest==9.0.2; extra == 'dev'
+Requires-Dist: ruff==0.14.10; extra == 'dev'
+Requires-Dist: tdigest==0.5.2.2; extra == 'dev'
+Description-Content-Type: text/markdown
+
+# aio-request
+
+This library simplifies an interaction between microservices:
+1. Allows sending requests using various strategies
+1. Propagates a deadline and a priority of requests
+1. Exposes client/server metrics
+
+Example:
+```python
+import aiohttp
+import aio_request
+
+async with aiohttp.ClientSession() as client_session:
+    client = aio_request.setup(
+        transport=aio_request.AioHttpTransport(client_session),
+        endpoint="http://endpoint:8080/",
+    )
+    response_ctx = client.request(
+        aio_request.get("thing"),
+        deadline=aio_request.Deadline.from_timeout(5)
+    )
+    async with response_ctx as response:
+        pass  # process response here
+```
+
+# Request strategies 
+The following strategies are supported:
+1. Single attempt. Only one attempt is sent.
+1. Sequential. Attempts are sent sequentially with delays between them.
+1. Parallel. Attempts are sent in parallel one by one with delays between them.
+
+Attempts count and delays are configurable.
+
+Example:
+
+```python
+import aiohttp
+import aio_request
+
+async with aiohttp.ClientSession() as client_session:
+    client = aio_request.setup(
+        transport=aio_request.AioHttpTransport(client_session),
+        endpoint="http://endpoint:8080/",
+    )
+    response_ctx = client.request(
+        aio_request.get("thing"),
+        deadline=aio_request.Deadline.from_timeout(5),
+        strategy=aio_request.parallel_strategy(
+            attempts_count=3,
+            delays_provider=aio_request.linear_backoff_delays(min_delay_seconds=0.1, delay_multiplier=0.1)
+        )
+    )
+    async with response_ctx as response:
+        pass  # process response here
+```
+
+# Deadline & priority propagation
+
+To enable it for the server side a middleware should be configured:
+```python
+import aiohttp.web
+import aio_request
+
+app = aiohttp.web.Application(middlewares=[aio_request.aiohttp_middleware_factory()])
+```
+
+# Expose client/server metrics
+
+To enable client metrics, just install prometheus-client
+```python
+import aiohttp
+import aio_request
+
+async with aiohttp.ClientSession() as client_session:
+    client = aio_request.setup(
+        transport=aio_request.AioHttpTransport(
+            client_session,
+        ),
+        endpoint="http://endpoint:8080/",
+    )
+```
+
+It is an example of how it should be done for aiohttp and prometheus.
+
+To enable client metrics just install prometheus-client and use the following code:
+```python
+import aiohttp.web
+import aio_request
+
+app = aiohttp.web.Application(
+    middlewares=[
+        aio_request.aiohttp_middleware_factory()
+    ]
+)
+```
+
+# Circuit breaker
+
+```python
+import aiohttp
+import aio_request
+
+async with aiohttp.ClientSession() as client_session:
+    client = aio_request.setup(
+        transport=aio_request.AioHttpTransport(client_session),
+        endpoint="http://endpoint:8080/",
+        circuit_breaker=aio_request.DefaultCircuitBreaker[str, int](
+            break_duration=1.0,
+            sampling_duration=1.0,
+            minimum_throughput=2,
+            failure_threshold=0.5,
+        ),
+    )
+```
+
+In the case of requests count >= minimum throughput(>=2) in sampling period(1 second) the circuit breaker will open
+if failed requests count/total requests count >= failure threshold(50%).
