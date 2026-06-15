@@ -1,0 +1,8 @@
+fastapi[standard]
+uvicorn
+pyodbc
+pandas
+numpy
+python-dotenv
+async-request
+aio-request
