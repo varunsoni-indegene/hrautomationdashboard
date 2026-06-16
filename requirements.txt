@@ -28,7 +28,6 @@ httpx
 tenacity
 pydantic
 pydantic-settings
-version-sensitive
 joblib==1.4.2
 cryptography==43.0.1
 alembic==1.13.3
